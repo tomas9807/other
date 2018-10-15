@@ -1,9 +1,10 @@
-from . import app
+from . import app,bcrypt,login_manager
 from flask import render_template,redirect,url_for,request,flash
 from datetime import date,timedelta
 from .forms import RegistrationForm,LoginForm,NewPostForm
 from mysql import connector
 from contextlib import closing
+
 
 def execute_sql_statement(*,operation,params=None,message=None,to_return=False,**cursor_kwargs):
 
@@ -37,7 +38,13 @@ def execute_sql_statement(*,operation,params=None,message=None,to_return=False,*
 @app.route('/')
 def index():
     title = 'home'
-    posts = execute_sql_statement(operation='select id_user as author,title,content,date_posted from posts',to_return=True,dictionary=True,buffered=True)
+    posts = execute_sql_statement(
+    operation="""select users.username as author,posts.title,posts.content,posts.date_posted from posts
+    inner join users on users.id=posts.id_user
+    """,
+    to_return=True,
+    dictionary=True,
+    buffered=True)
     return render_template('index.html',**locals())
 
 @app.route('/register',methods=['GET','POST'])
@@ -48,13 +55,34 @@ def register():
         username = form.username.data
         password = form.password.data
         email = form.email.data
+        hashed_passwd = bcrypt.generate_password_hash(password).decode('utf-8')
         execute_sql_statement(
-            operation = """insert into users(username,email,password,date_posted) values (%s,%s,%s,%s)""",
-            params=  (username,email,password),
+            operation = """insert into users(username,email,password) values (%s,%s,%s)""",
+            params=  (username,email,hashed_passwd),
             message= f'Account created for {form.username.data}')
 
         return redirect(url_for('index'))   
     return render_template('register.html',**locals())
+
+@app.route('/login',methods=['GET','POST'])
+def login():
+    title = 'login'
+    form = LoginForm()
+    if request.method == 'POST' and form.validate_on_submit():
+        email = form.email.data
+        password = form.password.data
+     
+        data = execute_sql_statement(
+            operation = """select password from users where email=%s""",
+            params=  (email,),
+            to_return=True,
+            buffered=True
+            )
+        if data and data[0]:
+            user_passwd = data[0]
+            if bcrypt.check_password_hash(user_passwd,password):
+                return redirect(url_for('index'))   
+    return render_template('login.html',**locals())
 
 @app.route('/newpost',methods=['GET','POST'])
 def newpost():
